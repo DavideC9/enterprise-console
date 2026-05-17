@@ -1,0 +1,41 @@
+# ============================================================
+# cert-manager ClusterIssuer – Let's Encrypt (OVH)
+# Prerequisito: cert-manager installato nel cluster
+#   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+#
+# Uso: kubectl apply -f cluster-issuer.yml
+# ============================================================
+
+---
+# Staging (per test, non consuma rate limit Let's Encrypt)
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: your-email@yourdomain.com     # ← sostituire!
+    privateKeySecretRef:
+      name: letsencrypt-staging-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+
+---
+# Production (usare solo dopo aver testato con staging)
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: your-email@yourdomain.com     # ← sostituire!
+    privateKeySecretRef:
+      name: letsencrypt-prod-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx

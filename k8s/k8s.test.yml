@@ -1,0 +1,120 @@
+# ============================================================
+# Kubernetes – TEST (Minikube locale)
+# Uso: kubectl apply -f k8s.test.yml
+# ============================================================
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: enterprise-console-test
+  labels:
+    env: test
+
+---
+# ConfigMap: variabili d'ambiente applicazione
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: enterprise-console-config
+  namespace: enterprise-console-test
+data:
+  NODE_ENV: "development"
+  APP_ENV: "test"
+
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enterprise-console
+  namespace: enterprise-console-test
+  labels:
+    app: enterprise-console
+    env: test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: enterprise-console
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: enterprise-console
+        env: test
+    spec:
+      containers:
+        - name: enterprise-console
+          # In Minikube usa l'immagine buildita localmente:
+          # eval $(minikube docker-env)
+          # docker build -f Dockerfile.test -t enterprise-console:test .
+          image: enterprise-console-enterprise-console
+          imagePullPolicy: Never   # <-- usa immagine locale Minikube
+          ports:
+            - containerPort: 80
+          envFrom:
+            - configMapRef:
+                name: enterprise-console-config
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "300m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+# Service (NodePort per accesso diretto da Minikube)
+apiVersion: v1
+kind: Service
+metadata:
+  name: enterprise-console-svc
+  namespace: enterprise-console-test
+spec:
+  type: NodePort
+  selector:
+    app: enterprise-console
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+      nodePort: 30080   # accesso: minikube ip → http://<minikube-ip>:30080
+
+---
+# Ingress (opzionale con minikube addons enable ingress)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: enterprise-console-ingress
+  namespace: enterprise-console-test
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+    - host: enterprise-console.test   # aggiungere a /etc/hosts → <minikube ip>
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: enterprise-console-svc
+                port:
+                  number: 80

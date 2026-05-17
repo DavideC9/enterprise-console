@@ -1,0 +1,210 @@
+# ============================================================
+# Kubernetes – PRODUCTION (OVH Managed Kubernetes)
+# Uso: kubectl apply -f k8s.prod.yml
+# ============================================================
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: enterprise-console
+  labels:
+    env: production
+
+---
+# Secret per registry privata OVH (Harbor / OVH registry)
+# Creare con:
+# kubectl create secret docker-registry ovh-registry-secret \
+#   --docker-server=<your-registry>.gra.container-registry.ovh.net \
+#   --docker-username=<user> \
+#   --docker-password=<password> \
+#   --namespace=enterprise-console
+# NON committare questo file con le credenziali reali!
+# Qui è solo come riferimento strutturale.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ovh-registry-secret
+  namespace: enterprise-console
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: <BASE64_ENCODED_DOCKER_CONFIG>   # sostituire!
+
+---
+# ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: enterprise-console-config
+  namespace: enterprise-console
+data:
+  NODE_ENV: "production"
+  APP_ENV: "production"
+
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enterprise-console
+  namespace: enterprise-console
+  labels:
+    app: enterprise-console
+    env: production
+spec:
+  replicas: 2                  # almeno 2 per alta disponibilità
+  selector:
+    matchLabels:
+      app: enterprise-console
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0        # zero downtime deploy
+  template:
+    metadata:
+      labels:
+        app: enterprise-console
+        env: production
+    spec:
+      imagePullSecrets:
+        - name: ovh-registry-secret
+      # Anti-affinity: i pod vanno su nodi diversi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - enterprise-console
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: enterprise-console
+          image: <your-registry>.gra.container-registry.ovh.net/enterprise-console:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: enterprise-console-config
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          # Graceful shutdown
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+      terminationGracePeriodSeconds: 30
+
+---
+# HorizontalPodAutoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: enterprise-console-hpa
+  namespace: enterprise-console
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: enterprise-console
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+# Service (ClusterIP – esposto via Ingress)
+apiVersion: v1
+kind: Service
+metadata:
+  name: enterprise-console-svc
+  namespace: enterprise-console
+spec:
+  type: ClusterIP
+  selector:
+    app: enterprise-console
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+
+---
+# Ingress con cert-manager (Let's Encrypt via OVH)
+# Prerequisiti:
+#   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+#   Configurare ClusterIssuer per Let's Encrypt (vedi cluster-issuer.yml)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: enterprise-console-ingress
+  namespace: enterprise-console
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"   # vedi cluster-issuer.yml
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - console.yourdomain.com          # ← sostituire con il tuo dominio
+      secretName: enterprise-console-tls
+  rules:
+    - host: console.yourdomain.com        # ← sostituire con il tuo dominio
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: enterprise-console-svc
+                port:
+                  number: 80
+
+---
+# PodDisruptionBudget: garantisce disponibilità durante manutenzione nodi
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: enterprise-console-pdb
+  namespace: enterprise-console
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: enterprise-console

@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  enterprise-console:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: enterprise-console-test
+    ports:
+      - "4200:80"
+    environment:
+      - NODE_ENV=development
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # Opzionale: nginx reverse proxy locale con SSL self-signed
+  # Decommentare se si vuole testare HTTPS in locale
+  # proxy:
+  #   image: nginx:1.27-alpine
+  #   ports:
+  #     - "443:443"
+  #     - "80:80"
+  #   volumes:
+  #     - ./nginx.local-proxy.conf:/etc/nginx/conf.d/default.conf
+  #     - ./certs:/etc/nginx/certs
+  #   depends_on:
+  #     - enterprise-console

@@ -1,0 +1,75 @@
+# ============================================================
+# GitLab CI/CD – EnterpriseConsole
+# ============================================================
+
+stages:
+  - build-test
+  - build-push
+  - deploy
+
+variables:
+  REGISTRY: <your-registry>.gra.container-registry.ovh.net   # ← sostituire
+  IMAGE_NAME: enterprise-console
+  IMAGE_FULL: $REGISTRY/$IMAGE_NAME
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+
+# ──────────────────────────────────────────
+# Stage 1: Build immagine test (ogni branch/MR)
+# ──────────────────────────────────────────
+build-test:
+  stage: build-test
+  image: docker:26
+  services:
+    - docker:26-dind
+  before_script:
+    - docker info
+  script:
+    - docker build -f Dockerfile.test -t $IMAGE_NAME:test .
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# ──────────────────────────────────────────
+# Stage 2: Build & Push immagine produzione (solo main)
+# ──────────────────────────────────────────
+build-push-prod:
+  stage: build-push
+  image: docker:26
+  services:
+    - docker:26-dind
+  before_script:
+    - echo "$OVH_REGISTRY_PASSWORD" | docker login $REGISTRY --username $OVH_REGISTRY_USER --password-stdin
+  script:
+    - docker build -f Dockerfile.prod
+        -t $IMAGE_FULL:latest
+        -t $IMAGE_FULL:$CI_COMMIT_SHA .
+    - docker push $IMAGE_FULL:latest
+    - docker push $IMAGE_FULL:$CI_COMMIT_SHA
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# ──────────────────────────────────────────
+# Stage 3: Deploy su OVH Kubernetes (solo main)
+# ──────────────────────────────────────────
+deploy-prod:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  before_script:
+    - mkdir -p ~/.kube
+    - echo "$OVH_KUBECONFIG" | base64 -d > ~/.kube/config
+    - chmod 600 ~/.kube/config
+  script:
+    - kubectl set image deployment/enterprise-console
+        enterprise-console=$IMAGE_FULL:$CI_COMMIT_SHA
+        -n enterprise-console
+    - kubectl rollout status deployment/enterprise-console
+        -n enterprise-console
+        --timeout=5m
+    - kubectl get pods -n enterprise-console
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  environment:
+    name: production
+    url: https://console.yourdomain.com    # ← sostituire
