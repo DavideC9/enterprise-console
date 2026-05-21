@@ -1,0 +1,65 @@
+#apiVersion: networking.k8s.io/v1
+#kind: Ingress
+#metadata:
+#  name: enterprise-console-ingress
+#  namespace: enterprise-console-test
+#spec:
+#  ingressClassName: nginx
+#  tls:
+#    - hosts:
+#        - enterprise.local
+#      secretName: enterprise-console-tls
+#  rules:
+#    - host: enterprise.local
+#      http:
+#        paths:
+#          - path: /
+#            pathType: Prefix
+#            backend:
+#              service:
+#                name: enterprise-console-svc
+#                port:
+#                  number: 80
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: enterprise-console-ingress
+  namespace: enterprise-console-test
+
+spec:
+  ingressClassName: nginx
+
+  tls:
+    - secretName: enterprise-console-tls
+
+      # Se vuoi limitare HTTPS solo a enterprise.local
+      # decommenta questa sezione
+      #
+      # hosts:
+      #   - enterprise.local
+
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: enterprise-console-svc
+                port:
+                  number: 80
+
+      # Se vuoi accettare SOLO richieste verso enterprise.local
+      # usa questa configurazione al posto di quella sopra
+      #
+      # host: enterprise.local
+      # http:
+      #   paths:
+      #     - path: /
+      #       pathType: Prefix
+      #       backend:
+      #         service:
+      #           name: enterprise-console-svc
+      #           port:
+      #             number: 80

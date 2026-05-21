@@ -139,8 +139,7 @@ const EMPTY_FEATURES: FeaturesForm = {
                       <option value="">— nessuno —</option>
                       <option value="available">Disponibile</option>
                       <option value="sold">Venduto</option>
-                      <option value="reserved">Riservato</option>
-                      <option value="rented">Affittato</option>
+                      <option value="onprogress">In Lavorazione</option>
                     </select>
                   </div>
                 </div>

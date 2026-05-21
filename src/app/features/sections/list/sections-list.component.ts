@@ -532,6 +532,7 @@ export class SectionsListComponent implements OnInit {
       sold:      'Venduto',
       reserved:  'Riservato',
       rented:    'Affittato',
+      onprogress: 'In Lavorazione'
     };
     return map[status] ?? status;
   }
